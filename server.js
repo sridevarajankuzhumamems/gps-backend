@@ -5,14 +5,11 @@ const cors = require('cors');
 
 const app = express();
 
-const allowedOrigins = [
-  "https://gps-frontend-drab.vercel.app",
-  "http://localhost:5173",
-  "http://localhost:3000"
-];
-
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    // Dynamically allow any origin (including any port on localhost, Vercel, etc.)
+    callback(null, true);
+  },
   credentials: true
 }));
 
@@ -24,7 +21,9 @@ app.get('/ping', (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     methods: ["GET", "POST"],
     credentials: true
   }
