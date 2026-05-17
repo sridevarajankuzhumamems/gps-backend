@@ -16,6 +16,11 @@ app.use(cors({
   credentials: true
 }));
 
+// Lightweight ping endpoint to keep the server awake
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
