@@ -2,22 +2,32 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const db = require('./config/db');
+const SharingHistory = require('./models/SharingHistory');
+const authRoutes = require('./routes/authRoutes');
+const historyRoutes = require('./routes/historyRoutes');
 
 const app = express();
 
+app.use(express.json());
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Dynamically allow any origin (including any port on localhost, Vercel, etc.)
     callback(null, true);
   },
   credentials: true
 }));
+
+// API Routes
+app.use('/api', authRoutes);
+app.use('/api', historyRoutes);
 
 // Lightweight ping endpoint to keep the server awake
 app.get('/ping', (req, res) => {
   res.send('pong');
 });
 
+// Socket.io integration
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -36,8 +46,12 @@ let currentAdminState = {
   battery: null,
   ip: null,
   startTime: null,
-  markerPhoto: null
+  markerPhoto: null,
+  admin: null
 };
+
+// Map of socket ID to their active sharing history row ID
+const activeHistoryIds = new Map();
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
@@ -45,16 +59,38 @@ io.on('connection', (socket) => {
   // Always send current state to newly connected client immediately
   socket.emit('admin_status', currentAdminState);
 
-  socket.on('start_sharing', (data) => {
-    console.log('Admin started sharing:', data);
+  socket.on('start_sharing', async (data) => {
+    console.log('Admin started sharing location:', data);
+    
     currentAdminState = {
       isSharing: true,
       location: data.location || null,
       battery: data.battery,
       ip: data.ip,
       startTime: data.startTime || new Date().toISOString(),
-      markerPhoto: currentAdminState.markerPhoto // Keep the existing marker photo
+      markerPhoto: currentAdminState.markerPhoto,
+      admin: data.admin || null
     };
+
+    if (data.admin && data.admin.email) {
+      try {
+        const startTimeMysql = new Date();
+        const historyId = await SharingHistory.insert(
+          data.admin.name,
+          data.admin.mobile,
+          data.admin.email,
+          data.ip || null,
+          data.battery || null,
+          startTimeMysql
+        );
+        activeHistoryIds.set(socket.id, historyId);
+        console.log(`Recorded sharing session started: Log ID ${historyId}`);
+        io.emit('history_update');
+      } catch (dbErr) {
+        console.error('Failed to log sharing start to DB:', dbErr);
+      }
+    }
+
     io.emit('admin_status', currentAdminState);
   });
 
@@ -72,14 +108,34 @@ io.on('connection', (socket) => {
     io.emit('admin_status', currentAdminState);
   });
 
-  socket.on('stop_sharing', () => {
-    console.log('Admin stopped sharing');
-    currentAdminState.isSharing = false;
-    io.emit('stop_sharing');
-  });
+  const stopSharingFn = async () => {
+    if (currentAdminState.isSharing) {
+      console.log('Admin stopped sharing location');
+      currentAdminState.isSharing = false;
+      currentAdminState.admin = null;
+      io.emit('stop_sharing');
+    }
 
-  socket.on('disconnect', () => {
+    const historyId = activeHistoryIds.get(socket.id);
+    if (historyId) {
+      try {
+        await SharingHistory.updateEnd(historyId);
+        activeHistoryIds.delete(socket.id);
+        console.log(`Recorded sharing session ended: Log ID ${historyId}`);
+        io.emit('history_update');
+      } catch (dbErr) {
+        console.error('Failed to log sharing end to DB:', dbErr);
+      }
+    }
+  };
+
+  socket.on('stop_sharing', stopSharingFn);
+
+  socket.on('disconnect', async () => {
     console.log('User disconnected:', socket.id);
+    if (activeHistoryIds.has(socket.id)) {
+      await stopSharingFn();
+    }
   });
 });
 
