@@ -15,33 +15,29 @@ exports.sendOtp = async (req, res) => {
     await Otp.save(email, otp, expiresAt);
     console.log(`\n=======================================\n🔥 OTP for ${email}: ${otp}\n=======================================\n`);
 
-    let sentRealEmail = false;
-    if (process.env.RESEND_API_KEY) {
-      try {
-        const { Resend } = require('resend');
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-
-        await resend.emails.send({
-          from: fromEmail,
-          to: email,
-          subject: 'Your GPS Admin Login OTP',
-          html: `<p>Hello ${name || 'Admin'},</p><p>Your OTP for GPS Admin Login is: <strong>${otp}</strong></p><p>This OTP is valid for 5 minutes.</p>`
-        });
-        sentRealEmail = true;
-      } catch (resendErr) {
-        console.error('Failed to send Resend email, logged to console instead:', resendErr.message);
-      }
+    if (!process.env.RESEND_API_KEY) {
+      console.error('Email sending failed: RESEND_API_KEY is missing.');
+      return res.status(500).json({ error: 'Email service (Resend API key) is not configured.' });
     }
+
+    const { Resend } = require('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+
+    await resend.emails.send({
+      from: fromEmail,
+      to: email,
+      subject: 'Your GPS Admin Login OTP',
+      html: `<p>Hello ${name || 'Admin'},</p><p>Your OTP for GPS Admin Login is: <strong>${otp}</strong></p><p>This OTP is valid for 5 minutes.</p>`
+    });
 
     res.json({
       success: true,
-      message: sentRealEmail ? 'OTP sent to email' : 'OTP generated (Mock/Console Mode)',
-      debugOtp: process.env.NODE_ENV !== 'production' || !sentRealEmail ? otp : undefined
+      message: 'OTP sent to email'
     });
   } catch (err) {
-    console.error('Error generating OTP:', err);
-    res.status(500).json({ error: 'Failed to generate OTP' });
+    console.error('Error generating or sending OTP:', err);
+    res.status(500).json({ error: err.message || 'Failed to send OTP' });
   }
 };
 
