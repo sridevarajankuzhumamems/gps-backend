@@ -107,3 +107,24 @@ exports.logout = async (req, res) => {
   }
   res.json({ success: true });
 };
+
+exports.autoLogin = async (req, res) => {
+  const { name, mobile, email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    const token = crypto.randomBytes(32).toString('hex');
+    await Session.create(token, email, name || 'Admin', mobile || '');
+
+    res.json({
+      success: true,
+      token,
+      admin: { name: name || 'Admin', mobile: mobile || '', email }
+    });
+  } catch (err) {
+    console.error('Error in auto-login:', err);
+    res.status(500).json({ error: 'Auto-login failed' });
+  }
+};
