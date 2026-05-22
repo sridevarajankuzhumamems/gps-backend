@@ -62,6 +62,19 @@ io.on('connection', (socket) => {
   socket.on('start_sharing', async (data) => {
     console.log('Admin started sharing location:', data);
     
+    if (currentAdminState.isSharing) {
+      const activeEmail = currentAdminState.admin ? currentAdminState.admin.email : null;
+      const requestEmail = data.admin ? data.admin.email : null;
+      
+      if (activeEmail !== requestEmail) {
+        const activeName = currentAdminState.admin ? currentAdminState.admin.name : 'Another Admin';
+        socket.emit('sharing_rejected', { 
+          message: `Cannot start sharing. ${activeName} is currently sharing location.` 
+        });
+        return;
+      }
+    }
+
     currentAdminState = {
       isSharing: true,
       location: data.location || null,
